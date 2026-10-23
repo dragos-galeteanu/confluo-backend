@@ -1,0 +1,25 @@
+spring:
+  application:
+    name: eureka-server
+  profiles:
+    default: docker
+
+server:
+  port: ${SERVER_PORT:8761}
+
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: false
+    service-url:
+      defaultZone: http://localhost:${SERVER_PORT:8761}/eureka/
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+
+logging:
+  level:
+    com.confluo: DEBUG
