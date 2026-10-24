@@ -32,7 +32,7 @@ public record PaginationFilter(
 
     /**
      * Applies the defaults for the paging parameters, so that the rest of the pagination machinery -
-     * {@link com.jobbiegiggle.common.mapper.PaginationMapper#toPageable} in particular, which unboxes both - never sees a null.
+     * {@link com.confluo.common.mapper.PaginationMapper#toPageable} in particular, which unboxes both - never sees a null.
      * Requests that omit {@code page} and {@code pageSize} entirely are the common case, not an error.
      */
     public PaginationFilter {
