@@ -1,0 +1,68 @@
+# The local platform: the registry, the two databases the platform service reads, and the service
+# itself. Copy .env.default to .env and set FIREBASE_PROJECT_ID before starting.
+services:
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-confluo_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-confluo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-confluo}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-confluo} -d ${POSTGRES_DB:-confluo_platform}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  mongo:
+    image: mongo:7
+    ports:
+      - "${MONGO_PORT:-27017}:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  eureka-server:
+    build:
+      context: .
+      dockerfile: eureka-server/Dockerfile
+    environment:
+      SERVER_PORT: 8761
+    ports:
+      - "8761:8761"
+
+  platform:
+    build:
+      context: .
+      dockerfile: platform/Dockerfile
+    environment:
+      SERVER_PORT: 8081
+      EUREKA_URI: http://eureka-server:8761/eureka/
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-confluo_platform}
+      POSTGRES_USER: ${POSTGRES_USER:-confluo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-confluo}
+      MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-confluo_platform}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?set FIREBASE_PROJECT_ID in .env}
+    ports:
+      - "${PLATFORM_PORT:-8081}:8081"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  mongo-data:
