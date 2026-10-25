@@ -3,6 +3,7 @@ package com.confluo.common.security;
 import com.confluo.common.filter.PaginationFilter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -180,11 +181,19 @@ public interface BaseAuthorizationPolicy<CREATE_REQUEST, UPDATE_REQUEST> {
 
     /**
      * Check if the user is authenticated.
+     *
+     * <p>An {@link AnonymousAuthenticationToken} does not count. It reports itself as
+     * authenticated - that is how Spring Security models "nobody is signed in" where anonymous
+     * authentication is enabled - and taking it at its word would hand an unauthenticated caller
+     * everything behind this check.</p>
+     *
      * @param authentication the authentication object
      * @return true if the user is authenticated, false otherwise
      */
     default boolean isAuthenticated(Authentication authentication) {
-        return authentication != null && authentication.isAuthenticated();
+        return authentication != null
+                && authentication.isAuthenticated()
+                && !(authentication instanceof AnonymousAuthenticationToken);
     }
 
     /**
