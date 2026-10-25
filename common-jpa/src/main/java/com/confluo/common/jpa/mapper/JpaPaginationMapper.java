@@ -1,6 +1,7 @@
 package com.confluo.common.jpa.mapper;
 
 import com.confluo.common.dto.Paginated;
+import com.confluo.common.entity.BaseEntity;
 import com.confluo.common.exception.InvalidFilterException;
 import com.confluo.common.filter.PaginationFilter;
 import com.confluo.common.jpa.entity.BaseJpaEntity;
@@ -67,6 +68,6 @@ public class JpaPaginationMapper {
      * @return the specification
      */
     private static <ENTITY extends BaseJpaEntity> Specification<ENTITY> notDeleted() {
-        return (root, query, criteriaBuilder) -> criteriaBuilder.isNull(root.get("deletedAt"));
+        return (root, query, criteriaBuilder) -> criteriaBuilder.isNull(root.get(BaseEntity.DELETED_AT));
     }
 }

@@ -1,29 +1,35 @@
 package com.confluo.common.entity;
 
 import java.time.Instant;
-import java.util.UUID;
 
 /**
- * What every stored resource has, whatever it is stored in.
+ * The lifecycle of a resource the service and controller layers manage.
  *
- * <p>This is an interface rather than a base class because the two stores cannot share one. JPA
- * only maps fields declared in an {@code @Entity} or {@code @MappedSuperclass} type, so fields
- * inherited from an ordinary superclass would simply not be persisted. Each store therefore brings
- * its own base - {@code com.confluo.common.jpa.entity.BaseJpaEntity} and
- * {@code com.confluo.common.mongo.entity.BaseMongoDocument} - declaring the fields with its own
- * mapping annotations, and the abstractions above them work against this interface.</p>
+ * <p>This exists so that {@link com.confluo.common.service.BaseService},
+ * {@link com.confluo.common.controller.BaseController} and
+ * {@link com.confluo.common.repository.BaseRepository} have something to be typed against from
+ * this module, which cannot see the store-specific ones. It is an interface rather than a base
+ * class because JPA only maps fields declared in an {@code @Entity} or {@code @MappedSuperclass}
+ * type: fields inherited from an ordinary superclass would not be persisted at all. The relational
+ * base, {@code com.confluo.common.jpa.entity.BaseJpaEntity}, declares them itself and implements
+ * this.</p>
  *
- * <p>Both bases name the fields exactly as the accessors below do. The pagination machinery
- * restricts listings with a {@code deletedAt IS NULL} condition written against that name, so an
- * implementation that spells it differently will not be filtered correctly.</p>
+ * <p>A MongoDB document carries the same four fields but does not implement this interface. It
+ * could, and the compiler would accept it - but the promise would not be keepable: the stack above
+ * reaches a resource through a {@code BaseRepository}, which is keyed by {@code UUID}, and a
+ * document is keyed by an {@code ObjectId}. What the two stores do share is the naming below, and
+ * {@link #DELETED_AT} is where that is written down rather than restated in prose.</p>
  */
 public interface BaseEntity {
 
     /**
-     * The resource's identifier, assigned when it is first stored.
-     * @return the id, or null before the resource has been stored
+     * The name of the soft-delete field, as both stores spell it.
+     *
+     * <p>Each store's pagination mapper restricts a listing by writing a condition against this
+     * name - a column in SQL, a document key in MongoDB - so the two must agree, and a base that
+     * spells its field differently will not be filtered correctly.</p>
      */
-    UUID getId();
+    String DELETED_AT = "deletedAt";
 
     /**
      * When the resource was created.
