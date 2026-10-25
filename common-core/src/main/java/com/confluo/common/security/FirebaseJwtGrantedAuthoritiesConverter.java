@@ -8,6 +8,7 @@ import org.springframework.security.oauth2.server.resource.authentication.JwtGra
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.Locale;
 
 /**
  * Custom converter to add the role claim from the JWT to the granted authorities.
@@ -28,8 +29,11 @@ public class FirebaseJwtGrantedAuthoritiesConverter implements Converter<Jwt, Co
         // Add the role claim to the authorities
         String role = jwt.getClaimAsString("role");
         if (role != null && !role.isBlank()) {
-            // Normalize the role authority by adding the "ROLE_" prefix if it doesn't exist'
-            String normalized = role.toUpperCase();
+            // Normalize the role authority by adding the "ROLE_" prefix if it doesn't exist.
+            // Locale.ROOT, not the JVM default: on a Turkish-locale server "admin" upper-cases to
+            // "ADMİN" with a dotted capital I, and the resulting ROLE_ADMİN never matches the
+            // ROLE_ADMIN that BaseAuthorizationPolicy builds - every admin silently loses access.
+            String normalized = role.toUpperCase(Locale.ROOT);
             String normalizedRoleAuthority = normalized.startsWith("ROLE_") ? normalized : "ROLE_" + normalized;
             authorities.add(new SimpleGrantedAuthority(normalizedRoleAuthority));
         }
