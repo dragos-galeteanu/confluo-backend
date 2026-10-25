@@ -24,8 +24,11 @@
     </properties>
 
     <modules>
-        <module>common</module>
+        <module>common-core</module>
+        <module>common-jpa</module>
+        <module>common-mongo</module>
         <module>eureka-server</module>
+        <module>platform</module>
     </modules>
 
     <dependencyManagement>
@@ -51,7 +54,7 @@
             <dependency>
                 <groupId>org.testcontainers</groupId>
                 <artifactId>testcontainers-bom</artifactId>
-                <version>1.21.1</version>
+                <version>1.21.3</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
