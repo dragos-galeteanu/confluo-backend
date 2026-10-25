@@ -4,6 +4,7 @@ import com.confluo.common.jpa.entity.BaseJpaEntity;
 import org.mapstruct.MapperConfig;
 import org.mapstruct.Mapping;
 import org.mapstruct.MappingInheritanceStrategy;
+import org.mapstruct.ReportingPolicy;
 import org.mapstruct.MappingTarget;
 
 /**
@@ -19,10 +20,16 @@ import org.mapstruct.MappingTarget;
  *
  * <p>Mappers using this configuration take {@code @Mapper(config = AuditableMapperConfig.class)};
  * the component model comes from here, so they no longer declare it.</p>
+
+ * <p>An unmapped target property fails the build. The default is a warning, and a warning is not
+ * enough here: a field whose accessor is spelled differently on the two sides - a boolean called
+ * {@code isEuMember}, whose getter MapStruct reads as {@code euMember} - would otherwise compile
+ * cleanly and return the wrong answer at runtime.</p>
  */
 @MapperConfig(
         componentModel = "spring",
-        mappingInheritanceStrategy = MappingInheritanceStrategy.AUTO_INHERIT_ALL_FROM_CONFIG
+        mappingInheritanceStrategy = MappingInheritanceStrategy.AUTO_INHERIT_ALL_FROM_CONFIG,
+        unmappedTargetPolicy = ReportingPolicy.ERROR
 )
 public interface AuditableMapperConfig {
 
