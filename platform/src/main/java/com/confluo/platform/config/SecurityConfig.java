@@ -47,6 +47,20 @@ public class SecurityConfig implements BaseSecurityConfig {
     }
 
     /**
+     * Keeps an anonymous authentication on unauthenticated requests.
+     *
+     * <p>The read routes are permitted below and still carry a {@code @PreAuthorize}, so that
+     * authorization is decided in one place - the policy - rather than split between a policy and
+     * a list of matchers. Method security needs something to evaluate against, and this is it.</p>
+     *
+     * @return true
+     */
+    @Override
+    public boolean anonymousAuthenticationEnabled() {
+        return true;
+    }
+
+    /**
      * Opens the reference data to unauthenticated readers.
      *
      * <p>Both the collection and a single resource are listed: an {@code /api/countries/**}
