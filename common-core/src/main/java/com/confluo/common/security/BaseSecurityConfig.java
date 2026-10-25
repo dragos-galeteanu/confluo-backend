@@ -33,7 +33,11 @@ public interface BaseSecurityConfig {
 
         return http
                 .csrf(AbstractHttpConfigurer::disable)
-                .anonymous(AbstractHttpConfigurer::disable)
+                .anonymous(anonymous -> {
+                    if (!anonymousAuthenticationEnabled()) {
+                        anonymous.disable();
+                    }
+                })
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .logout(AbstractHttpConfigurer::disable)
@@ -63,6 +67,24 @@ public interface BaseSecurityConfig {
         JwtAuthenticationConverter converter = new JwtAuthenticationConverter();
         converter.setJwtGrantedAuthoritiesConverter(new FirebaseJwtGrantedAuthoritiesConverter());
         return converter;
+    }
+
+    /**
+     * Whether an unauthenticated request should still carry an anonymous authentication.
+     *
+     * <p>Off by default: a service whose every route needs a token has no use for one. Turn it on
+     * in a service that permits some routes <em>and</em> guards them with {@code @PreAuthorize}.
+     * Without it such a route is reached with no {@link org.springframework.security.core.Authentication}
+     * at all, and method security refuses the call before the expression is evaluated - so the
+     * policy never gets to say the route is open.</p>
+     *
+     * <p>Turning it on does not open anything: {@code anyRequest().authenticated()} still rejects
+     * an anonymous token, so only the explicitly permitted matchers are reachable.</p>
+     *
+     * @return true to keep anonymous authentication
+     */
+    default boolean anonymousAuthenticationEnabled() {
+        return false;
     }
 
     /**
