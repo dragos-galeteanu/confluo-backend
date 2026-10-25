@@ -15,7 +15,9 @@ import java.util.UUID;
  * resources live. A store's own base - {@code BaseJpaRepository} or {@code BaseMongoRepository} -
  * adds the querying that store supports.</p>
  *
- * <p>The identifier is always a {@link UUID}, as {@link BaseEntity} declares.</p>
+ * <p>The identifier is a {@link UUID}, which is what the service and controller layers above pass
+ * around. That is a relational assumption: {@code BaseMongoRepository} deliberately does not extend
+ * this interface, because a document is keyed by an {@code ObjectId}.</p>
  *
  * @param <ENTITY> type of the entity for the resource
  */
