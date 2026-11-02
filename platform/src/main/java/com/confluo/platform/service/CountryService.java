@@ -1,5 +1,7 @@
 package com.confluo.platform.service;
 
+import com.confluo.amqp.event.platform.CountryDisabledEvent;
+import com.confluo.amqp.publish.EventPublisher;
 import com.confluo.common.dto.Paginated;
 import com.confluo.common.exception.ResourceNotFoundException;
 import com.confluo.common.filter.PaginationFilter;
@@ -38,6 +40,7 @@ public class CountryService implements BaseService<Country, CountryCreateRequest
 
     private final CountryRepository repository;
     private final CountryMapper mapper;
+    private final EventPublisher eventPublisher;
     private final CurrencyService currencyService;
     private final LanguageService languageService;
 
@@ -108,6 +111,10 @@ public class CountryService implements BaseService<Country, CountryCreateRequest
         if (country.getDisabledAt() == null) {
             country.setDisabledAt(Instant.now());
             country = repository.save(country);
+
+            eventPublisher.publish(country.getId(),
+                    new CountryDisabledEvent(country.getId(), country.getDisabledAt()));
+
             log.info("Country disabled [id={}, alpha2={}]", country.getId(), country.getAlpha2());
         }
         return mapper.toResponse(country);
