@@ -111,8 +111,8 @@ public class CurrencyService implements BaseService<Currency, CurrencyCreateRequ
             currency.setDisabledAt(Instant.now());
             currency = repository.save(currency);
 
-            eventPublisher.publish(currency.getId(), new CurrencyDisabledEvent(
-                    currency.getId(), currency.getCode(), currency.getDisabledAt()));
+            eventPublisher.publish(currency.getId(),
+                    new CurrencyDisabledEvent(currency.getId(), currency.getDisabledAt()));
 
             log.info("Currency disabled [id={}, code={}]", currency.getId(), currency.getCode());
         }
