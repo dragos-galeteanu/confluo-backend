@@ -27,6 +27,7 @@
         <module>common-core</module>
         <module>common-jpa</module>
         <module>common-mongo</module>
+        <module>common-amqp</module>
         <module>eureka-server</module>
         <module>platform</module>
     </modules>

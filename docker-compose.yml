@@ -1,5 +1,6 @@
-# The local platform: the registry, the two databases the platform service reads, and the service
-# itself. Copy .env.default to .env and set FIREBASE_PROJECT_ID before starting.
+# The local platform: the registry, the two databases the platform service reads, the broker that
+# carries events between services, the trace collector, and the service itself. Copy .env.default
+# to .env and set FIREBASE_PROJECT_ID before starting.
 services:
 
   postgres:
@@ -30,6 +31,34 @@ services:
       timeout: 5s
       retries: 20
 
+  rabbitmq:
+    image: rabbitmq:4.1-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-confluo}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-confluo}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-/}
+    ports:
+      - "${RABBITMQ_PORT:-5672}:5672"
+      # The management UI, which is where a parking lot gets inspected and replayed.
+      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      # check_running says the node is up; check_local_alarms says it is not refusing publishes
+      # because it has run out of memory or disk, which looks identical from the outside.
+      test: ["CMD-SHELL", "rabbitmq-diagnostics -q check_running && rabbitmq-diagnostics -q check_local_alarms"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+
+  # Where a trace covering the HTTP request, the outbox row and the consumer can be read as one
+  # thing. Nothing depends on it being healthy: a service that cannot report spans still works.
+  zipkin:
+    image: openzipkin/zipkin:3
+    ports:
+      - "${ZIPKIN_PORT:-9411}:9411"
+
   eureka-server:
     build:
       context: .
@@ -52,6 +81,15 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-confluo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-confluo}
       MONGO_URI: mongodb://mongo:27017/${MONGO_DB:-confluo_platform}
+      # Inside the network these are the containers' own ports, not the published ones.
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-confluo}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-confluo}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_QUEUE_TYPE: ${RABBITMQ_QUEUE_TYPE:-classic}
+      ZIPKIN_URL: http://zipkin:9411/api/v2/spans
+      TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}
       FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?set FIREBASE_PROJECT_ID in .env}
     ports:
       - "${PLATFORM_PORT:-8081}:8081"
@@ -60,9 +98,15 @@ services:
         condition: service_healthy
       mongo:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
       eureka-server:
         condition: service_healthy
+      # Only ordering, not health: unreported spans are not a reason to hold the service back.
+      zipkin:
+        condition: service_started
 
 volumes:
   postgres-data:
   mongo-data:
+  rabbitmq-data:

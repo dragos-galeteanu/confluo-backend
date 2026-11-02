@@ -9,6 +9,7 @@ COPY pom.xml ./
 COPY common-core/pom.xml common-core/
 COPY common-jpa/pom.xml common-jpa/
 COPY common-mongo/pom.xml common-mongo/
+COPY common-amqp/pom.xml common-amqp/
 COPY eureka-server/pom.xml eureka-server/
 COPY platform/pom.xml platform/
 RUN mvn -B -pl platform -am dependency:go-offline
@@ -16,6 +17,7 @@ RUN mvn -B -pl platform -am dependency:go-offline
 COPY common-core/src common-core/src
 COPY common-jpa/src common-jpa/src
 COPY common-mongo/src common-mongo/src
+COPY common-amqp/src common-amqp/src
 COPY platform/src platform/src
 RUN mvn -B -pl platform -am package -DskipTests
 
