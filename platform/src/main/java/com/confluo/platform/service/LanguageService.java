@@ -1,5 +1,7 @@
 package com.confluo.platform.service;
 
+import com.confluo.amqp.event.platform.LanguageDisabledEvent;
+import com.confluo.amqp.publish.EventPublisher;
 import com.confluo.common.dto.Paginated;
 import com.confluo.common.exception.ResourceNotFoundException;
 import com.confluo.common.filter.PaginationFilter;
@@ -32,6 +34,7 @@ public class LanguageService implements BaseService<Language, LanguageCreateRequ
 
     private final LanguageRepository repository;
     private final LanguageMapper mapper;
+    private final EventPublisher eventPublisher;
 
     /**
      * Refuses a code another language already holds, so the caller gets a 422 naming the code rather
@@ -107,6 +110,10 @@ public class LanguageService implements BaseService<Language, LanguageCreateRequ
         if (language.getDisabledAt() == null) {
             language.setDisabledAt(Instant.now());
             language = repository.save(language);
+
+            eventPublisher.publish(language.getId(),
+                    new LanguageDisabledEvent(language.getId(), language.getDisabledAt()));
+
             log.info("Language disabled [id={}, code={}]", language.getId(), language.getCode());
         }
         return mapper.toResponse(language);
