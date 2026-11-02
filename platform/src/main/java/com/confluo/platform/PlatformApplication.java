@@ -1,5 +1,6 @@
 package com.confluo.platform;
 
+import com.confluo.amqp.EnableAmqp;
 import com.confluo.common.exception.GlobalExceptionHandler;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -23,9 +24,16 @@ import org.springframework.data.mongodb.repository.config.EnableMongoRepositorie
  * this service's component scan does not reach it, and the symptom of leaving it out is not a
  * startup failure but a quiet one: every handled exception becomes a 500 instead of the status the
  * handler would have given it. Each service that wants the shared error contract imports it.</p>
+ *
+ * <p>{@code @EnableAmqp} is opt-in for the same reason and declared for the same kind of
+ * reason: messaging is on this service's classpath whether or not it uses it, and this is where it
+ * says that it does. It makes this service a publisher - the outbox, its drainer and the
+ * {@code platform.events} exchange. It declares no consumers, because there are no handlers
+ * here.</p>
  */
 @SpringBootApplication
 @Import(GlobalExceptionHandler.class)
+@EnableAmqp
 @EnableJpaRepositories(basePackages = "com.confluo.platform.repository.jpa")
 @EnableMongoRepositories(basePackages = "com.confluo.platform.repository.mongo")
 @EnableMongoAuditing

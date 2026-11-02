@@ -1,5 +1,7 @@
 package com.confluo.platform.service;
 
+import com.confluo.amqp.event.platform.CurrencyDisabledEvent;
+import com.confluo.amqp.publish.EventPublisher;
 import com.confluo.common.dto.Paginated;
 import com.confluo.common.exception.ResourceNotFoundException;
 import com.confluo.common.filter.PaginationFilter;
@@ -32,6 +34,7 @@ public class CurrencyService implements BaseService<Currency, CurrencyCreateRequ
 
     private final CurrencyRepository repository;
     private final CurrencyMapper mapper;
+    private final EventPublisher eventPublisher;
 
     /**
      * Refuses a code another currency already holds, so the caller gets a 422 naming the code rather
@@ -107,6 +110,10 @@ public class CurrencyService implements BaseService<Currency, CurrencyCreateRequ
         if (currency.getDisabledAt() == null) {
             currency.setDisabledAt(Instant.now());
             currency = repository.save(currency);
+
+            eventPublisher.publish(currency.getId(), new CurrencyDisabledEvent(
+                    currency.getId(), currency.getCode(), currency.getDisabledAt()));
+
             log.info("Currency disabled [id={}, code={}]", currency.getId(), currency.getCode());
         }
         return mapper.toResponse(currency);
