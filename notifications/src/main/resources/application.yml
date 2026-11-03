@@ -1,0 +1,173 @@
+spring:
+  application:
+    name: notifications
+  profiles:
+    default: docker
+
+  datasource:
+    # A database of its own in the same PostgreSQL instance, not a schema in the platform's. The
+    # outbox and the consumed-message ledger common-amqp ships are created per service, and two
+    # services sharing one database would collide on both tables. docker/postgres/ creates it.
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${NOTIFICATIONS_DB:confluo_notifications}
+    username: ${POSTGRES_USER:confluo}
+    password: ${POSTGRES_PASSWORD:confluo}
+
+  jpa:
+    # The schema belongs to Flyway. validate makes a drift between the entities and the migrations
+    # a startup failure rather than a surprise at the first query.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    # The second location is shipped inside common-amqp and holds the outbox and the
+    # consumed-message ledger. Its migrations are numbered from 1000 so they cannot collide with
+    # this service's own, which Flyway would refuse to start on. The first location is empty until
+    # this service has a schema of its own, which Flyway reports as a warning and not an error.
+    locations: classpath:db/migration, classpath:db/migration/amqp
+
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://localhost:27017/confluo_notifications}
+      auto-index-creation: true
+
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      repositories:
+        # Off. Redis is used here for counters and short-lived locks through a template and a Lua
+        # script, never as a repository - and with three Spring Data modules on the classpath, a
+        # scanner that could claim a repository interface is the third door the two explicit
+        # @Enable*Repositories packages on the application class exist to close.
+        enabled: false
+      # Short, and deliberately so. Everything Redis is asked for here - a deduplication check, a
+      # per-recipient cap, a provider token - is something the pipeline can decide without if it
+      # has to. Waiting seconds on it would turn an optional check into the slowest part of a send.
+      timeout: 1s
+      connect-timeout: 1s
+
+  mail:
+    # Mailpit locally, Gmail's SMTP when deployed. Local development must not send through the real
+    # account: the daily ceiling is shared with whoever reads that mailbox, and one enthusiastic
+    # test loop spends it.
+    host: ${MAIL_HOST:localhost}
+    port: ${MAIL_PORT:1025}
+    username: ${MAIL_USERNAME:}
+    password: ${MAIL_PASSWORD:}
+    properties:
+      # Both off for Mailpit, which wants neither; both on for Gmail, which requires both and the
+      # username to be the full address with a 16-character app password - not the account's own.
+      mail.smtp.auth: ${MAIL_SMTP_AUTH:false}
+      mail.smtp.starttls.enable: ${MAIL_SMTP_STARTTLS:false}
+      mail.smtp.starttls.required: ${MAIL_SMTP_STARTTLS:false}
+      # Without these a provider that accepts the connection and then stops talking holds a
+      # dispatcher thread until the socket gives up, which is minutes by default.
+      mail.smtp.connectiontimeout: 5000
+      mail.smtp.timeout: 10000
+      mail.smtp.writetimeout: 10000
+
+  thymeleaf:
+    # The templates come from MongoDB as strings, so there is no classpath:/templates/ to find and
+    # the check would only ever log a warning about its absence.
+    check-template-location: false
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:confluo}
+    password: ${RABBITMQ_PASSWORD:confluo}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    # Not optional: the outbox drainer marks an entry published only once the broker has confirmed
+    # it, and without correlated confirms there is nothing to wait for.
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        # The module sets both of these on the containers it builds itself; these cover anything
+        # else, such as a plain @RabbitListener. default-requeue-rejected defaults to true, which
+        # redelivers a rejected message immediately - so a message that always fails would spin a
+        # consumer at full speed.
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://securetoken.google.com/${FIREBASE_PROJECT_ID}
+
+server:
+  port: ${SERVER_PORT:8082}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID}
+
+confluo:
+  notifications:
+    # Where every locale chain ends. A message asked for in a language nothing is written in still
+    # has wording to be sent in, which is the difference between a fallback and a failure.
+    default-locale: en
+
+  amqp:
+    # Every exchange and queue name is derived from this. It defaults to the application's own
+    # name; it is written out here because renaming the service would otherwise quietly rename
+    # the exchange its consumers are bound to.
+    service-name: ${spring.application.name}
+    # A queue's type cannot be changed after it is declared, so switching this means deleting and
+    # recreating the queues while they are drained.
+    queue-type: ${RABBITMQ_QUEUE_TYPE:classic}
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      group:
+        # What the container's healthcheck watches, and what everything depending on this service
+        # being healthy waits for. Only PostgreSQL, because only PostgreSQL makes this service
+        # unable to do its job: it holds the queue of messages to send. Redis down costs rate
+        # limiting, which fails open for transactional messages; the broker down costs events,
+        # which the outbox holds until it returns; SMTP unreachable costs the next attempt, not
+        # the service. The full aggregate is still on /actuator/health for a person to read.
+        liveness:
+          include: ping,db
+  health:
+    mail:
+      # Off: the indicator opens an SMTP connection to prove the server is there, which turns
+      # every health poll into a login attempt against the mail account. A per-provider component
+      # reporting on the last send arrives with the senders, and reports what is actually worth
+      # knowing - whether mail is going out, not whether a socket opens.
+      enabled: false
+  tracing:
+    sampling:
+      # Everything locally: there is little of it, and the trace worth having is the one that
+      # went wrong. Deployed environments lower this.
+      probability: ${TRACING_SAMPLE_RATE:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://localhost:9411/api/v2/spans}
+
+logging:
+  level:
+    com.confluo: DEBUG
