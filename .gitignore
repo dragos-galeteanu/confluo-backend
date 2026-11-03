@@ -29,3 +29,7 @@ replay_pid*
 # IDE files
 .idea
 *.lst
+
+# Local configuration. .env.default is the committed template; .env is the copy holding the
+# Firebase project, the mail account's app password and the SMS provider's auth token.
+.env
