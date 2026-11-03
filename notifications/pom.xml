@@ -1,0 +1,218 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.confluo</groupId>
+        <artifactId>confluo-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>notifications</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>notifications</name>
+    <description>Turns events into email and SMS people receive: recipients, templates, preferences and the dispatch of a message to a provider</description>
+
+    <properties>
+        <springdoc.version>2.3.0</springdoc.version>
+        <!-- Docker's API version for the Testcontainers tests, as in the platform module.
+             docker-java still negotiates 1.43, which Docker Engine 25 and later refuse outright
+             (their minimum is 1.44), so the version is set explicitly. Override with
+             -Ddocker.api.version= on an older engine. -->
+        <docker.api.version>1.44</docker.api.version>
+        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+        <twilio.version>10.1.5</twilio.version>
+        <ognl.version>3.3.4</ognl.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The state machine: recipients, preferences, suppressions, and the notification rows
+             the dispatcher claims. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-jpa</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The content: templates, and the rendered message frozen against its notification. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-mongo</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Both halves are used here, unlike in platform: this service consumes other services'
+             events and publishes its own when a message turns out to be undeliverable. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-amqp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- Rate limits, deduplication and the per-provider token buckets. The only state here
+             that is allowed to be lost on a restart, which is why it is not in either database. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+        <!-- The email transport. Wired against Mailpit locally and Gmail's SMTP when deployed;
+             the sender that uses it arrives with the dispatcher. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
+        <!-- Rendering. Templates arrive from MongoDB as strings rather than from the classpath as
+             files, so what is used is the engine over a StringTemplateResolver - which is also why
+             spring.thymeleaf.check-template-location is off. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-thymeleaf</artifactId>
+        </dependency>
+        <!-- Thymeleaf's expression language, and not redundant: since Thymeleaf 3.1 the OGNL
+             dependency is optional, because the starter expects everything to be rendered by a
+             SpringTemplateEngine using SpringEL instead. The engine here is a plain TemplateEngine
+             on purpose - see TemplateEngineConfig - which leaves the MVC view engine alone and
+             makes rendering testable without an application context, and that engine needs this.
+             Without it every render fails at runtime with NoClassDefFoundError: ognl/ClassResolver,
+             which is not the kind of thing to discover from a template. -->
+        <dependency>
+            <groupId>ognl</groupId>
+            <artifactId>ognl</artifactId>
+            <version>${ognl.version}</version>
+        </dependency>
+        <!-- The SMS transport, and the RequestValidator the status webhook verifies signatures
+             with. Nothing configures it yet; the sender and the webhook arrive together. -->
+        <dependency>
+            <groupId>com.twilio.sdk</groupId>
+            <artifactId>twilio</artifactId>
+            <version>${twilio.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- Four stores, all real in the tests. The schema leans on partial indexes, a CHECK
+             constraint and FOR UPDATE SKIP LOCKED, none of which behave like themselves on an
+             in-memory database; Redis is here because failing open and failing closed are
+             behaviours worth proving rather than assuming. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mongodb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>rabbitmq</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>notifications</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <api.version>${docker.api.version}</api.version>
+                    </systemPropertyVariables>
+                    <!-- Surefire's defaults cover *Test and leave *IT to Failsafe, which is not
+                         configured here and would run after packaging. The suffix is kept because
+                         it says something worth knowing - an *IT needs Docker, a *Test does not -
+                         and both are run in the same phase, because a build that skips the tests
+                         that touch the real schema is a build that proves the wrong half. -->
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- Order matters: Lombok must generate the accessors before MapStruct reads
+                         them, and lombok-mapstruct-binding is what makes the two cooperate. -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>${lombok-mapstruct-binding.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

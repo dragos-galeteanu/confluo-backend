@@ -30,6 +30,7 @@
         <module>common-amqp</module>
         <module>eureka-server</module>
         <module>platform</module>
+        <module>notifications</module>
     </modules>
 
     <dependencyManagement>
