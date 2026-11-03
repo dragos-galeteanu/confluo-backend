@@ -1,7 +1,7 @@
 package com.confluo.notifications.repository.mongo;
 
 import com.confluo.common.mongo.repository.BaseMongoRepository;
-import com.confluo.notifications.document.RenderedMessage;
+import com.confluo.notifications.document.NotificationRenderedMessage;
 import org.springframework.stereotype.Repository;
 
 import java.util.Optional;
@@ -14,7 +14,7 @@ import java.util.UUID;
  * nothing outside this collection ever holds.</p>
  */
 @Repository
-public interface RenderedMessageRepository extends BaseMongoRepository<RenderedMessage> {
+public interface NotificationRenderedMessageRepository extends BaseMongoRepository<NotificationRenderedMessage> {
 
     /**
      * The content of one notification.
@@ -22,5 +22,5 @@ public interface RenderedMessageRepository extends BaseMongoRepository<RenderedM
      * @return its words, or empty - which for a row past {@code PENDING} would mean something is
      *         wrong, since the content is written before the row is claimable
      */
-    Optional<RenderedMessage> findByNotificationId(UUID notificationId);
+    Optional<NotificationRenderedMessage> findByNotificationId(UUID notificationId);
 }

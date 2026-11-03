@@ -30,7 +30,7 @@ import java.util.UUID;
 @Getter
 @Setter
 @Document(collection = "rendered_messages")
-public class RenderedMessage extends BaseMongoDocument {
+public class NotificationRenderedMessage extends BaseMongoDocument {
 
     /**
      * The notification this is the content of. Unique: a notification has exactly one set of

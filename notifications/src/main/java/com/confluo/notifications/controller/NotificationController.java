@@ -4,7 +4,7 @@ import com.confluo.common.dto.Paginated;
 import com.confluo.common.filter.PaginationFilter;
 import com.confluo.notifications.dto.notification.NotificationResponse;
 import com.confluo.notifications.dto.notification.NotificationSendRequest;
-import com.confluo.notifications.dto.notification.RenderedContentResponse;
+import com.confluo.notifications.dto.notification.NotificationRenderedMessageResponse;
 import com.confluo.notifications.service.NotificationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -98,7 +98,7 @@ public class NotificationController {
     @GetMapping("/{id}/content")
     @Operation(summary = "Get the words a message was sent with")
     @PreAuthorize("@notificationPolicy.canReadContent(authentication, #id)")
-    public ResponseEntity<RenderedContentResponse> getContent(@PathVariable UUID id) {
+    public ResponseEntity<NotificationRenderedMessageResponse> getContent(@PathVariable UUID id) {
         return ResponseEntity.ok(service.getContent(id));
     }
 

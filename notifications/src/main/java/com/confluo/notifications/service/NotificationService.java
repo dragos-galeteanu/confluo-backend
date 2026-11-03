@@ -6,16 +6,16 @@ import com.confluo.common.filter.PaginationFilter;
 import com.confluo.common.jpa.mapper.JpaPaginationMapper;
 import com.confluo.notifications.channel.Channel;
 import com.confluo.notifications.document.NotificationTemplate;
-import com.confluo.notifications.document.RenderedMessage;
+import com.confluo.notifications.document.NotificationRenderedMessage;
 import com.confluo.notifications.dto.notification.NotificationResponse;
 import com.confluo.notifications.dto.notification.NotificationSendRequest;
-import com.confluo.notifications.dto.notification.RenderedContentResponse;
+import com.confluo.notifications.dto.notification.NotificationRenderedMessageResponse;
 import com.confluo.notifications.entity.Notification;
 import com.confluo.notifications.entity.NotificationStatus;
 import com.confluo.notifications.entity.Recipient;
 import com.confluo.notifications.mapper.NotificationMapper;
 import com.confluo.notifications.repository.jpa.NotificationRepository;
-import com.confluo.notifications.repository.mongo.RenderedMessageRepository;
+import com.confluo.notifications.repository.mongo.NotificationRenderedMessageRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -64,13 +64,13 @@ import java.util.UUID;
 public class NotificationService {
 
     private final NotificationRepository repository;
-    private final RenderedMessageRepository renderedMessages;
+    private final NotificationRenderedMessageRepository renderedMessages;
     private final NotificationMapper mapper;
     private final RecipientService recipients;
     private final NotificationPreferenceService preferences;
     private final SuppressionService suppressions;
     private final NotificationTemplateService templates;
-    private final RenderingService rendering;
+    private final NotificationRenderingService rendering;
 
     /**
      * Decides whether a message should exist and, if so, writes it.
@@ -151,14 +151,14 @@ public class NotificationService {
      * @return its frozen content
      */
     @Transactional(readOnly = true)
-    public RenderedContentResponse getContent(UUID id) {
+    public NotificationRenderedMessageResponse getContent(UUID id) {
         // Checked first, so a message that does not exist is a 404 about the message rather than
         // about its content - and so that an id nobody has sent cannot be probed for either.
         getEntityById(id);
-        RenderedMessage rendered = renderedMessages.findByNotificationId(id)
+        NotificationRenderedMessage rendered = renderedMessages.findByNotificationId(id)
                 .orElseThrow(() -> new ResourceNotFoundException(
                         "Notification %s has no rendered content".formatted(id)));
-        return new RenderedContentResponse(
+        return new NotificationRenderedMessageResponse(
                 rendered.getNotificationId(),
                 rendered.getSubject(),
                 rendered.getTextBody(),
@@ -337,9 +337,9 @@ public class NotificationService {
      * @param variables what to fill it in with
      */
     private void freeze(Notification notification, NotificationTemplate template, Map<String, Object> variables) {
-        RenderedContent content = rendering.render(template, variables);
+        NotificationRenderedContent content = rendering.render(template, variables);
 
-        RenderedMessage rendered = new RenderedMessage();
+        NotificationRenderedMessage rendered = new NotificationRenderedMessage();
         rendered.setNotificationId(notification.getId());
         rendered.setSubject(content.subject());
         rendered.setTextBody(content.textBody());
