@@ -1,6 +1,6 @@
-# The local platform: the registry, the two databases the platform service reads, the broker that
-# carries events between services, the trace collector, and the service itself. Copy .env.default
-# to .env and set FIREBASE_PROJECT_ID before starting.
+# The local platform: the registry, the stores the services read, the broker that carries events
+# between them, the trace collector, the local mail catcher, and the services themselves. Copy
+# .env.default to .env and set FIREBASE_PROJECT_ID before starting.
 services:
 
   postgres:
@@ -9,10 +9,17 @@ services:
       POSTGRES_DB: ${POSTGRES_DB:-confluo_platform}
       POSTGRES_USER: ${POSTGRES_USER:-confluo}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-confluo}
+      # Read by the init script below, not by PostgreSQL. One database per service: common-amqp
+      # ships an outbox and a consumed-message table per service, so two sharing a database would
+      # collide on both. Space-separated, and the platform's own is POSTGRES_DB above.
+      SERVICE_DATABASES: ${NOTIFICATIONS_DB:-confluo_notifications}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      # Runs only when the data directory is empty. An existing postgres-data volume will not pick
+      # it up - see the script's own header for the two ways out of that.
+      - ./docker/postgres:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-confluo} -d ${POSTGRES_DB:-confluo_platform}"]
       interval: 5s
@@ -51,6 +58,40 @@ services:
       timeout: 10s
       retries: 12
       start_period: 30s
+
+  # Rate limits, deduplication windows and the per-provider token buckets the notifications service
+  # sends through. The one store here whose contents may be lost on a restart without anything
+  # being wrong: every decision it holds is one the pipeline can also make without it.
+  redis:
+    image: redis:7-alpine
+    # appendonly is deliberately off. Persisting a rate-limit counter buys nothing and a restart
+    # that forgets them is the correct behaviour, not a loss.
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # Where email goes locally. Nothing is sent through the real Google account in development: its
+  # daily ceiling is shared with whoever reads that mailbox, and one enthusiastic test loop spends
+  # it. The web UI is where a rendered message is actually read.
+  mailpit:
+    image: axllent/mailpit:v1.21
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    ports:
+      - "${MAILPIT_SMTP_PORT:-1025}:1025"
+      - "${MAILPIT_UI_PORT:-8025}:8025"
+    healthcheck:
+      # The binary answers its own readiness check; the image carries no curl.
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
 
   # Where a trace covering the HTTP request, the outbox row and the consumer can be read as one
   # thing. Nothing depends on it being healthy: a service that cannot report spans still works.
@@ -103,6 +144,58 @@ services:
       eureka-server:
         condition: service_healthy
       # Only ordering, not health: unreported spans are not a reason to hold the service back.
+      zipkin:
+        condition: service_started
+
+  notifications:
+    build:
+      context: .
+      dockerfile: notifications/Dockerfile
+    environment:
+      SERVER_PORT: 8082
+      EUREKA_URI: http://eureka-server:8761/eureka/
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      # Its own database, created by docker/postgres/ when the volume is first initialised.
+      NOTIFICATIONS_DB: ${NOTIFICATIONS_DB:-confluo_notifications}
+      POSTGRES_USER: ${POSTGRES_USER:-confluo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-confluo}
+      MONGO_URI: mongodb://mongo:27017/${NOTIFICATIONS_MONGO_DB:-confluo_notifications}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Inside the network these are the containers' own ports, not the published ones.
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-confluo}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-confluo}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_QUEUE_TYPE: ${RABBITMQ_QUEUE_TYPE:-classic}
+      # Mailpit, which accepts anything and delivers nowhere. The deployed values are Gmail's, and
+      # the two TLS switches go on with them.
+      MAIL_HOST: mailpit
+      MAIL_PORT: 1025
+      MAIL_SMTP_AUTH: "false"
+      MAIL_SMTP_STARTTLS: "false"
+      ZIPKIN_URL: http://zipkin:9411/api/v2/spans
+      TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?set FIREBASE_PROJECT_ID in .env}
+    ports:
+      - "${NOTIFICATIONS_PORT:-8082}:8082"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      # Ordering only, for the same reason as zipkin below: a mail server this service cannot
+      # reach costs it the next send attempt, not its ability to start and accept requests.
+      mailpit:
+        condition: service_started
       zipkin:
         condition: service_started
 

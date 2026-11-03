@@ -12,6 +12,7 @@ COPY common-mongo/pom.xml common-mongo/
 COPY common-amqp/pom.xml common-amqp/
 COPY eureka-server/pom.xml eureka-server/
 COPY platform/pom.xml platform/
+COPY notifications/pom.xml notifications/
 RUN mvn -B -pl platform -am dependency:go-offline
 
 COPY common-core/src common-core/src

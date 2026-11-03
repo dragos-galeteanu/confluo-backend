@@ -13,6 +13,7 @@ COPY common-mongo/pom.xml common-mongo/
 COPY common-amqp/pom.xml common-amqp/
 COPY eureka-server/pom.xml eureka-server/
 COPY platform/pom.xml platform/
+COPY notifications/pom.xml notifications/
 RUN mvn -B -pl eureka-server -am dependency:go-offline
 
 # Only this service's sources: it depends on the parent pom alone, so -am adds nothing else.
