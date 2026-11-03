@@ -69,7 +69,7 @@ public class NotificationService {
     private final RecipientService recipients;
     private final NotificationPreferenceService preferences;
     private final SuppressionService suppressions;
-    private final TemplateService templates;
+    private final NotificationTemplateService templates;
     private final RenderingService rendering;
 
     /**

@@ -6,7 +6,7 @@ import com.confluo.notifications.channel.Channel;
 import com.confluo.notifications.dto.template.NotificationTemplateCreateRequest;
 import com.confluo.notifications.dto.template.NotificationTemplateResponse;
 import com.confluo.notifications.dto.template.NotificationTemplateUpdateRequest;
-import com.confluo.notifications.service.TemplateService;
+import com.confluo.notifications.service.NotificationTemplateService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -41,7 +41,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Notification templates")
 public class NotificationTemplateController {
 
-    private final TemplateService service;
+    private final NotificationTemplateService service;
 
     /**
      * Adds the wording of a message.
