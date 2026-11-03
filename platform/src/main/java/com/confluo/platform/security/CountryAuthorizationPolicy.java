@@ -20,7 +20,7 @@ import java.util.UUID;
  * reference data is not a support action.</p>
  */
 @Component("countryPolicy")
-public class CountryAuthorizationPolicy implements BaseAuthorizationPolicy<CountryCreateRequest, CountryUpdateRequest> {
+public class CountryAuthorizationPolicy implements BaseAuthorizationPolicy<CountryCreateRequest, CountryUpdateRequest, UUID> {
 
     @Override
     public boolean canCreate(Authentication authentication, CountryCreateRequest request) {

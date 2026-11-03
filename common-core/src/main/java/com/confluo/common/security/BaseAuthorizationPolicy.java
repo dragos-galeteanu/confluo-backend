@@ -15,10 +15,29 @@ import java.util.stream.Collectors;
 
 /**
  * Base authorization policy interface for defining authorization roles.
+ *
+ * <p>The identifier is a type parameter rather than a {@link UUID}, because a resource's
+ * identifier is whatever its own route carries and that is not always a {@code UUID}. A relational
+ * entity is keyed by one; a MongoDB document is addressed by the hex string of its
+ * {@code ObjectId}; and a resource reached by a natural key - a Firebase uid, say - is addressed by
+ * a {@code String} whatever its own primary key happens to be. Hardcoding one of those meant the
+ * other two had to invent method names to get around it.</p>
+ *
+ * <p>It matters more than it looks, because a {@code @PreAuthorize} expression is resolved at
+ * request time: handing a {@code String} to a method declaring a {@code UUID} is not a compile
+ * error. Spring converts it, and a value that is not a {@code UUID} then fails inside
+ * {@code UUID.fromString} on every call to that route.</p>
+ *
+ * <p>{@code ID} is the type the <strong>route</strong> addresses the resource by, which is not
+ * always the type of its primary key. A resource whose own key is a {@code UUID} but which also has
+ * a lookup by some other name declares {@code UUID} here and gives that lookup a method of its
+ * own: one type parameter cannot describe two addressing schemes, and should not pretend to.</p>
+ *
  * @param <CREATE_REQUEST> type of the request object for creating a new resource
  * @param <UPDATE_REQUEST> type of the request object for updating an existing resource
+ * @param <ID> type the resource's routes address it by, e.g. {@link UUID} for a relational entity
  */
-public interface BaseAuthorizationPolicy<CREATE_REQUEST, UPDATE_REQUEST> {
+public interface BaseAuthorizationPolicy<CREATE_REQUEST, UPDATE_REQUEST, ID> {
 
     Logger log = LoggerFactory.getLogger(BaseAuthorizationPolicy.class);
 
@@ -88,10 +107,10 @@ public interface BaseAuthorizationPolicy<CREATE_REQUEST, UPDATE_REQUEST> {
     /**
      * Check if the user can get the resource by ID.
      * @param authentication the authentication object
-     * @param id the id of the resource
+     * @param id the id of the resource, as its route carries it
      * @return true if the user can get the resource by ID, false otherwise
      */
-    boolean canGetById(Authentication authentication, UUID id);
+    boolean canGetById(Authentication authentication, ID id);
 
     /**
      * Check if the user can get all resources visible under the given filter
@@ -113,10 +132,10 @@ public interface BaseAuthorizationPolicy<CREATE_REQUEST, UPDATE_REQUEST> {
     /**
      * Check if the user can delete the resource.
      * @param authentication the authentication object
-     * @param id the id of the resource
+     * @param id the id of the resource, as its route carries it
      * @return true if the user can delete the resource, false otherwise
      */
-    boolean canDelete(Authentication authentication, UUID id);
+    boolean canDelete(Authentication authentication, ID id);
 
     /**
      * Check if the user can disable the resource.

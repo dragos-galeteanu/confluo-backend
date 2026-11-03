@@ -20,7 +20,7 @@ import java.util.UUID;
  * reference data is not a support action.</p>
  */
 @Component("currencyPolicy")
-public class CurrencyAuthorizationPolicy implements BaseAuthorizationPolicy<CurrencyCreateRequest, CurrencyUpdateRequest> {
+public class CurrencyAuthorizationPolicy implements BaseAuthorizationPolicy<CurrencyCreateRequest, CurrencyUpdateRequest, UUID> {
 
     @Override
     public boolean canCreate(Authentication authentication, CurrencyCreateRequest request) {
