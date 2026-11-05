@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.confluo</groupId>
+        <artifactId>confluo-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>payments</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>payments</name>
+    <description>The payments service itself: the application class, its security and its five subject modules assembled into one deployable</description>
+
+    <properties>
+        <!-- Docker's API version for the Testcontainers tests, as in the other service modules.
+             docker-java still negotiates 1.43, which Docker Engine 25 and later refuse outright
+             (their minimum is 1.44), so the version is set explicitly. Override with
+             -Ddocker.api.version= on an older engine. -->
+        <docker.api.version>1.44</docker.api.version>
+    </properties>
+
+    <dependencies>
+        <!-- The five subjects this service is made of. Each one depends only on the subjects it
+             reads, which is what the module boundaries are for: pricing and onboarding depend on
+             nothing here, marketplace on onboarding, payouts on both, and billing on all three.
+             Nothing depends on this module, which is why the application class lives in it. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>pricing</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>onboarding</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>marketplace</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payouts</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>billing</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- GlobalExceptionHandler and BaseOpenApiConfig, both imported by name. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- @EnableMongoAuditing, which is what fills the archived webhook bodies' timestamps. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-mongo</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- @EnableAmqp. Both halves are in use: the subjects publish what they learn from Stripe
+             and marketplace consumes an order being cancelled. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-amqp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- @EnableStripe and @EnableStripeWebhooks: declared on the application class, because
+             neither module does anything until a service asks for it.
+
+             Both live in directories inside this one, because they are this service's own
+             infrastructure rather than something the platform shares. They are still modules of
+             the ROOT reactor, not of this pom: a jar module cannot aggregate, so this pom lists
+             them as dependencies and the root pom lists them as <module>payments/...</module>.
+             The consequence is that `mvn` run from this directory builds the application alone
+             and resolves these two from the local repository - build from the repository root,
+             or with -pl payments -am, to get them from source. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payments-stripe</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payments-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <!-- The schema. Almost none of it is in this module any more: V1 here holds the
+             conventions and creates nothing, and the tables come from the seven modules that own
+             them - common-amqp at 1000, payments-webhook at 1100, then one range per subject from
+             1200 to 1699. application.yml lists the locations. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- The webhook in-flight locks, the checkout-session deduplication window and the token
+             bucket in front of Stripe's own rate limits. Losable by design: every one of those is
+             a decision the ledger in PostgreSQL can also make, only more expensively. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- The served API documentation. The subject modules need only the Swagger annotations,
+             which common-core brings; the UI and the /api-docs route are this module's. -->
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mongodb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>rabbitmq</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>payments</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <api.version>${docker.api.version}</api.version>
+                    </systemPropertyVariables>
+                    <!-- As in notifications: an *IT needs Docker and a *Test does not, and both
+                         run in the same phase, because a build that skips the tests that touch
+                         the real schema is a build that proves the wrong half. -->
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- Lombok only. The MapStruct processor paths moved to pricing and
+                         billing, which are where the mappers are now. -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

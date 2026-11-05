@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.confluo</groupId>
+        <artifactId>confluo-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>common-amqp</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>common-amqp</name>
+    <description>RabbitMQ bindings for asynchronous communication: the event envelope, the transactional outbox and the typed consumer</description>
+
+    <properties>
+        <!-- Docker's API version for the Testcontainers tests, as in the platform module.
+             docker-java still negotiates 1.43, which Docker Engine 25 and later refuse outright
+             (their minimum is 1.44), so the version is set explicitly. Override with
+             -Ddocker.api.version= on an older engine. -->
+        <docker.api.version>1.44</docker.api.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-amqp</artifactId>
+        </dependency>
+        <!-- The wire format is JSON, and the converter builds its own ObjectMapper rather than
+             taking the application's: a service's spring.jackson.* settings are for its HTTP API
+             and must not reach a message another service has to read. Declared explicitly because
+             the code uses Jackson directly, rather than relying on it arriving through the web
+             starter. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-json</artifactId>
+        </dependency>
+
+        <!-- The outbox insert has to join the caller's transaction, so the module takes part in
+             transaction management rather than opening its own. spring-rabbit pulls this in
+             anyway; it is declared because the code uses it directly. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-tx</artifactId>
+        </dependency>
+        <!-- The outbox and the idempotency ledger are reached through JdbcTemplate rather than
+             JPA: a service scopes @EnableJpaRepositories to its own packages and declares no
+             @EntityScan, so a repository or entity under com.confluo.amqp would never be picked
+             up. Optional because a service may depend on this module for the event contracts
+             alone, and any service that publishes or consumes already has spring-jdbc through
+             spring-boot-starter-data-jpa. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <!-- Tracing. Both are already managed by the root pom and were used by nothing until
+             now. With them on the classpath Spring Boot wires tracing up, Spring AMQP puts the
+             trace context in the message headers, and one trace covers the HTTP request, the
+             outbox row and whichever service consumes the event. Note that a service running
+             without a collector will log failed reports until the local Zipkin exists. -->
+        <dependency>
+            <groupId>io.micrometer</groupId>
+            <artifactId>micrometer-tracing-bridge-brave</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.zipkin.reporter2</groupId>
+            <artifactId>zipkin-reporter-brave</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The outbox is tested against a real PostgreSQL. FOR UPDATE SKIP LOCKED, jsonb and
+             TIMESTAMPTZ are the three things the implementation leans on, and none of them behave
+             like themselves on an in-memory database. -->
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>rabbitmq</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <!-- The migration this module ships is applied by Flyway in the tests, exactly as a
+             service applies it, so the SQL is verified rather than merely shipped. -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- The Testcontainers base class the consuming services reuse is published from
+                 here, the same way common-core publishes its test fixtures. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <goals>
+                            <goal>test-jar</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <skip>true</skip>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <api.version>${docker.api.version}</api.version>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

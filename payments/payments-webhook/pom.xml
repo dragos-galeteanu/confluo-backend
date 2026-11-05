@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.confluo</groupId>
+        <artifactId>confluo-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+        <!-- Nested one level deeper than the other modules: the default ../pom.xml would
+             resolve to the payments application module, which is not this module's parent. -->
+        <relativePath>../../pom.xml</relativePath>
+    </parent>
+
+    <artifactId>payments-webhook</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>payments-webhook</name>
+    <description>Stripe's webhooks: the two endpoints, the event ledger that makes them idempotent, and the sweep that applies them</description>
+
+    <dependencies>
+        <!-- The signature verifier and the Event model. The endpoints have no other way in. -->
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+        </dependency>
+        <!-- The signing secrets live with the rest of the Stripe credentials. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payments-stripe</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The ledger row is a resource with the five columns every resource on this platform
+             has, so it extends BaseJpaEntity; the archived body extends BaseMongoDocument. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-jpa</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-mongo</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The two endpoints are a @RestController. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+        </dependency>
+        <!-- A backlog of unapplied events is a health problem, so the module reports one. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- The claim query is hand-written SQL: SKIP LOCKED has no JPA spelling. -->
+        <dependency>
+            <groupId>org.springframework</groupId>
+            <artifactId>spring-jdbc</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

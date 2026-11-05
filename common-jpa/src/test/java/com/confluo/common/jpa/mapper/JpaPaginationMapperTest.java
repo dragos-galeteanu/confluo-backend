@@ -1,0 +1,165 @@
+package com.confluo.common.jpa.mapper;
+
+import com.confluo.common.dto.Paginated;
+import com.confluo.common.exception.InvalidFilterException;
+import com.confluo.common.filter.PaginationFilter;
+import com.confluo.common.jpa.entity.BaseJpaEntity;
+import com.confluo.common.jpa.repository.BaseJpaRepository;
+import jakarta.persistence.criteria.CriteriaBuilder;
+import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Path;
+import jakarta.persistence.criteria.Predicate;
+import jakarta.persistence.criteria.Root;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.dao.InvalidDataAccessApiUsageException;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.mapping.PropertyReferenceException;
+import org.springframework.data.util.TypeInformation;
+
+import java.util.List;
+import java.util.UUID;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+
+/**
+ * Tests for {@link JpaPaginationMapper}: how a listing is assembled and how a bad one is reported.
+ * The paging, sorting and response mapping it delegates to {@code PaginationMapper} are covered in
+ * common-core.
+ */
+class JpaPaginationMapperTest {
+
+    /** a stand-in entity; nothing here reaches a persistence context */
+    private static final class TestEntity extends BaseJpaEntity {
+
+        private final String name;
+
+        private TestEntity(String name) {
+            this.name = name;
+        }
+
+        private String getName() {
+            return name;
+        }
+    }
+
+    /** the repository shape the mapper reads through */
+    private interface TestRepository extends BaseJpaRepository<TestEntity> {
+    }
+
+    private static PaginationFilter filter(Integer page, Integer pageSize, String filter, String sort) {
+        return new PaginationFilter(page, pageSize, filter, sort);
+    }
+
+    @Test
+    void thePageableIsPassedThroughAndTheResultMapped() {
+        TestRepository repository = mock(TestRepository.class);
+        Page<TestEntity> page = new PageImpl<>(List.of(new TestEntity("only")), PageRequest.of(1, 5), 6);
+        given(repository.findAll(any(Specification.class), any(Pageable.class))).willReturn(page);
+
+        Paginated<String> paginated = JpaPaginationMapper.findAll(
+                repository, filter(2, 5, null, "-createdAt"), TestEntity::getName);
+
+        ArgumentCaptor<Pageable> pageable = ArgumentCaptor.forClass(Pageable.class);
+        verify(repository).findAll(any(Specification.class), pageable.capture());
+        assertThat(pageable.getValue().getPageNumber()).isEqualTo(1);
+        assertThat(pageable.getValue().getPageSize()).isEqualTo(5);
+        assertThat(pageable.getValue().getSort()).containsExactly(Sort.Order.desc("createdAt"));
+        assertThat(paginated.data()).containsExactly("only");
+        assertThat(paginated.metaData().currentPage()).isEqualTo(2);
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void softDeletedRowsAreExcluded() {
+        TestRepository repository = mock(TestRepository.class);
+        given(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of()));
+
+        JpaPaginationMapper.findAll(repository, filter(1, 10, null, null), TestEntity::getName);
+
+        ArgumentCaptor<Specification<TestEntity>> specification = ArgumentCaptor.forClass(Specification.class);
+        verify(repository).findAll(specification.capture(), any(Pageable.class));
+
+        Root<TestEntity> root = mock(Root.class);
+        CriteriaBuilder criteriaBuilder = mock(CriteriaBuilder.class);
+        Path deletedAt = mock(Path.class);
+        Predicate isNull = mock(Predicate.class);
+        given(root.get("deletedAt")).willReturn(deletedAt);
+        given(criteriaBuilder.isNull(deletedAt)).willReturn(isNull);
+
+        Predicate predicate = specification.getValue()
+                .toPredicate(root, mock(CriteriaQuery.class), criteriaBuilder);
+
+        assertThat(predicate).isSameAs(isNull);
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void theSoftDeleteCheckIsCombinedWithTheRequestedFilter() {
+        TestRepository repository = mock(TestRepository.class);
+        given(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .willReturn(new PageImpl<>(List.of()));
+
+        UUID companyId = UUID.randomUUID();
+        JpaPaginationMapper.findAll(
+                repository, filter(1, 10, "companyId==" + companyId, null), TestEntity::getName);
+
+        ArgumentCaptor<Specification<TestEntity>> specification = ArgumentCaptor.forClass(Specification.class);
+        verify(repository).findAll(specification.capture(), any(Pageable.class));
+
+        Root<TestEntity> root = mock(Root.class);
+        CriteriaBuilder criteriaBuilder = mock(CriteriaBuilder.class);
+        Path deletedAt = mock(Path.class);
+        Path company = mock(Path.class);
+        Predicate notDeleted = mock(Predicate.class);
+        Predicate matchesCompany = mock(Predicate.class);
+        Predicate both = mock(Predicate.class);
+        given(root.get("deletedAt")).willReturn(deletedAt);
+        given(root.get("companyId")).willReturn(company);
+        given(company.getJavaType()).willReturn((Class) UUID.class);
+        given(criteriaBuilder.isNull(deletedAt)).willReturn(notDeleted);
+        given(criteriaBuilder.equal(company, companyId)).willReturn(matchesCompany);
+        given(criteriaBuilder.and(notDeleted, matchesCompany)).willReturn(both);
+
+        Predicate predicate = specification.getValue()
+                .toPredicate(root, mock(CriteriaQuery.class), criteriaBuilder);
+
+        assertThat(predicate).isSameAs(both);
+    }
+
+    @Test
+    void anUnknownSortFieldIsReportedAsAnInvalidFilter() {
+        TestRepository repository = mock(TestRepository.class);
+        given(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .willThrow(new PropertyReferenceException(
+                        "bogus", TypeInformation.of(TestEntity.class), List.of()));
+
+        assertThatThrownBy(() -> JpaPaginationMapper.findAll(
+                repository, filter(1, 10, null, "bogus"), TestEntity::getName))
+                .isInstanceOf(InvalidFilterException.class)
+                .hasMessageContaining("Unknown field");
+    }
+
+    @Test
+    void anUnknownFilterFieldIsReportedAsAnInvalidFilter() {
+        TestRepository repository = mock(TestRepository.class);
+        given(repository.findAll(any(Specification.class), any(Pageable.class)))
+                .willThrow(new InvalidDataAccessApiUsageException("Unable to locate attribute"));
+
+        assertThatThrownBy(() -> JpaPaginationMapper.findAll(
+                repository, filter(1, 10, "bogus==" + UUID.randomUUID(), null), TestEntity::getName))
+                .isInstanceOf(InvalidFilterException.class)
+                .hasMessageContaining("Unknown field");
+    }
+}
