@@ -1,26 +1,26 @@
 # Built from the repository root, so the reactor's parent pom is in context:
 #   docker build -f notifications/Dockerfile -t confluo/notifications .
 FROM maven:3.9-eclipse-temurin-17 AS build
-WORKDIR /build
 
-# The poms first, on their own layer: dependencies are only re-resolved when a pom changes.
-# Every module's pom is needed because the root aggregator reads them all.
-COPY pom.xml ./
-COPY common-core/pom.xml common-core/
-COPY common-jpa/pom.xml common-jpa/
-COPY common-mongo/pom.xml common-mongo/
-COPY common-amqp/pom.xml common-amqp/
-COPY eureka-server/pom.xml eureka-server/
-COPY platform/pom.xml platform/
-COPY notifications/pom.xml notifications/
-RUN mvn -B -pl notifications -am dependency:go-offline
-
-COPY common-core/src common-core/src
-COPY common-jpa/src common-jpa/src
-COPY common-mongo/src common-mongo/src
-COPY common-amqp/src common-amqp/src
-COPY notifications/src notifications/src
-RUN mvn -B -pl notifications -am package -DskipTests
+# The repository is bind-mounted rather than copied in, which is why this stage names no modules.
+# Maven reads the root aggregator and the aggregator lists every module in the reactor, so a
+# COPY-based stage has to enumerate all of them - and adding a module then means editing this file
+# in every service, which is how this one came to look as though it depended on payments. A mount
+# has no list to keep in step.
+#
+# `rw` makes the mount an overlay: Maven writes target/ into it and those writes are discarded
+# with the mount, so the jar is copied out to /out while it still exists. The cache mount is what
+# the old "poms first" COPY layer was for - dependencies survive between builds instead of being
+# re-resolved - and `sharing=locked` keeps two concurrent builds from writing the same repository.
+#
+# Needs BuildKit, which Docker Desktop and `docker buildx` use by default; elsewhere set
+# DOCKER_BUILDKIT=1.
+RUN --mount=type=bind,target=/build,rw \
+    --mount=type=cache,target=/root/.m2,sharing=locked \
+    cd /build \
+    && mvn -B -pl notifications -am package -DskipTests \
+    && mkdir -p /out \
+    && cp notifications/target/notifications.jar /out/app.jar
 
 FROM eclipse-temurin:17-jre AS runtime
 
@@ -31,7 +31,7 @@ RUN apt-get update \
     && useradd --system --uid 1001 --create-home notifications
 
 WORKDIR /app
-COPY --from=build /build/notifications/target/notifications.jar app.jar
+COPY --from=build /out/app.jar app.jar
 RUN chown notifications:notifications app.jar
 
 USER notifications

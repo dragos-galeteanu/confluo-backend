@@ -12,7 +12,7 @@ services:
       # Read by the init script below, not by PostgreSQL. One database per service: common-amqp
       # ships an outbox and a consumed-message table per service, so two sharing a database would
       # collide on both. Space-separated, and the platform's own is POSTGRES_DB above.
-      SERVICE_DATABASES: ${NOTIFICATIONS_DB:-confluo_notifications}
+      SERVICE_DATABASES: ${NOTIFICATIONS_DB:-confluo_notifications} ${PAYMENTS_DB:-confluo_payments}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
@@ -32,6 +32,10 @@ services:
       - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo-data:/data/db
+      # Runs only when the data directory is empty, as with docker/postgres. An existing mongo-data
+      # volume will not pick it up - the script's own header has the one-liner for seeding one that
+      # already exists, and it is safe to repeat.
+      - ./docker/mongo:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
       interval: 5s
@@ -196,6 +200,62 @@ services:
       # reach costs it the next send attempt, not its ability to start and accept requests.
       mailpit:
         condition: service_started
+      zipkin:
+        condition: service_started
+
+  payments:
+    build:
+      context: .
+      dockerfile: payments/Dockerfile
+    environment:
+      SERVER_PORT: 8083
+      EUREKA_URI: http://eureka-server:8761/eureka/
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      # Its own database, created by docker/postgres/ when the volume is first initialised.
+      PAYMENTS_DB: ${PAYMENTS_DB:-confluo_payments}
+      POSTGRES_USER: ${POSTGRES_USER:-confluo}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-confluo}
+      MONGO_URI: mongodb://mongo:27017/${PAYMENTS_MONGO_DB:-confluo_payments}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      # Inside the network these are the containers' own ports, not the published ones.
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_PORT: 5672
+      RABBITMQ_USER: ${RABBITMQ_USER:-confluo}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-confluo}
+      RABBITMQ_VHOST: ${RABBITMQ_VHOST:-/}
+      RABBITMQ_QUEUE_TYPE: ${RABBITMQ_QUEUE_TYPE:-classic}
+      ZIPKIN_URL: http://zipkin:9411/api/v2/spans
+      TRACING_SAMPLE_RATE: ${TRACING_SAMPLE_RATE:-1.0}
+      FIREBASE_PROJECT_ID: ${FIREBASE_PROJECT_ID:?set FIREBASE_PROJECT_ID in .env}
+      # Required, not defaulted, and for the same reason the service validates them at startup:
+      # without the secret key it can do nothing, and without the right signing secret it cannot
+      # tell a real webhook from a forged one. See .env.default for where the local values
+      # come from.
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:?set STRIPE_SECRET_KEY in .env}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:?set STRIPE_WEBHOOK_SECRET in .env}
+      STRIPE_CONNECT_WEBHOOK_SECRET: ${STRIPE_CONNECT_WEBHOOK_SECRET:?set STRIPE_CONNECT_WEBHOOK_SECRET in .env}
+      PLATFORM_FEE_BPS: ${PLATFORM_FEE_BPS:-250}
+      CHECKOUT_SUCCESS_URL: ${CHECKOUT_SUCCESS_URL:-http://localhost:3000/checkout/success?session={CHECKOUT_SESSION_ID}}
+      CHECKOUT_CANCEL_URL: ${CHECKOUT_CANCEL_URL:-http://localhost:3000/checkout/cancelled}
+      CONNECT_RETURN_URL: ${CONNECT_RETURN_URL:-http://localhost:3000/connect/onboarding/done}
+      CONNECT_REFRESH_URL: ${CONNECT_REFRESH_URL:-http://localhost:3000/connect/onboarding/refresh}
+      IDENTITY_RETURN_URL: ${IDENTITY_RETURN_URL:-http://localhost:3000/identity/submitted}
+    ports:
+      - "${PAYMENTS_PORT:-8083}:8083"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      mongo:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      eureka-server:
+        condition: service_healthy
+      # Ordering only: unreported spans are not a reason to hold the service back.
       zipkin:
         condition: service_started
 

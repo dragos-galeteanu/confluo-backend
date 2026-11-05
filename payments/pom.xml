@@ -14,43 +14,84 @@
     <artifactId>payments</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <name>payments</name>
-    <description>Money: Stripe checkout and webhooks, connected accounts and their KYC, subscriptions, invoices and discounts</description>
+    <description>The payments service itself: the application class, its security and its five subject modules assembled into one deployable</description>
 
     <properties>
-        <springdoc.version>2.3.0</springdoc.version>
         <!-- Docker's API version for the Testcontainers tests, as in the other service modules.
              docker-java still negotiates 1.43, which Docker Engine 25 and later refuse outright
              (their minimum is 1.44), so the version is set explicitly. Override with
              -Ddocker.api.version= on an older engine. -->
         <docker.api.version>1.44</docker.api.version>
-        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
     </properties>
 
     <dependencies>
+        <!-- The five subjects this service is made of. Each one depends only on the subjects it
+             reads, which is what the module boundaries are for: pricing and onboarding depend on
+             nothing here, marketplace on onboarding, payouts on both, and billing on all three.
+             Nothing depends on this module, which is why the application class lives in it. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>pricing</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>onboarding</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>marketplace</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payouts</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>billing</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <!-- GlobalExceptionHandler and BaseOpenApiConfig, both imported by name. -->
         <dependency>
             <groupId>com.confluo</groupId>
             <artifactId>common-core</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- Everything that has to balance: the catalog, the mirrored money objects, and the
-             webhook ledger that decides whether an event has already been applied. -->
-        <dependency>
-            <groupId>com.confluo</groupId>
-            <artifactId>common-jpa</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <!-- The raw body of every webhook, kept as the document Stripe sent rather than as columns
-             guessed in advance, so a field added on their side costs nothing here. -->
+        <!-- @EnableMongoAuditing, which is what fills the archived webhook bodies' timestamps. -->
         <dependency>
             <groupId>com.confluo</groupId>
             <artifactId>common-mongo</artifactId>
             <version>${project.version}</version>
         </dependency>
-        <!-- Both halves, as in notifications: this service publishes what it learns from Stripe,
-             and consumes the events that ask it to charge or refund. -->
+        <!-- @EnableAmqp. Both halves are in use: the subjects publish what they learn from Stripe
+             and marketplace consumes an order being cancelled. -->
         <dependency>
             <groupId>com.confluo</groupId>
             <artifactId>common-amqp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- @EnableStripe and @EnableStripeWebhooks: declared on the application class, because
+             neither module does anything until a service asks for it.
+
+             Both live in directories inside this one, because they are this service's own
+             infrastructure rather than something the platform shares. They are still modules of
+             the ROOT reactor, not of this pom: a jar module cannot aggregate, so this pom lists
+             them as dependencies and the root pom lists them as <module>payments/...</module>.
+             The consequence is that `mvn` run from this directory builds the application alone
+             and resolves these two from the local repository - build from the repository root,
+             or with -pl payments -am, to get them from source. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payments-stripe</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payments-webhook</artifactId>
             <version>${project.version}</version>
         </dependency>
 
@@ -58,6 +99,10 @@
             <groupId>org.springframework.cloud</groupId>
             <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
         </dependency>
+        <!-- The schema. Almost none of it is in this module any more: V1 here holds the
+             conventions and creates nothing, and the tables come from the seven modules that own
+             them - common-amqp at 1000, payments-webhook at 1100, then one range per subject from
+             1200 to 1699. application.yml lists the locations. -->
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>
@@ -76,32 +121,11 @@
             <artifactId>spring-boot-starter-data-redis</artifactId>
         </dependency>
 
-        <!-- The Stripe client, the API-version assertion and one narrow interface per call this
-             service makes. Holds no domain, which is what let it leave this module. -->
-        <dependency>
-            <groupId>com.confluo</groupId>
-            <artifactId>payments-stripe</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <!-- The webhook endpoints, the event ledger and the sweep that applies what they recorded.
-             Ships its own migrations, numbered 1100-1199; see its EnableStripeWebhooks. -->
-        <dependency>
-            <groupId>com.confluo</groupId>
-            <artifactId>payments-webhook</artifactId>
-            <version>${project.version}</version>
-        </dependency>
-        <!-- Stripe itself, still declared here rather than left transitive: this service's handlers
-             deserialise Stripe's own models and build its parameter objects, so it is a direct
-             dependency whether or not payments-stripe brings it. -->
-        <dependency>
-            <groupId>com.stripe</groupId>
-            <artifactId>stripe-java</artifactId>
-        </dependency>
-
+        <!-- The served API documentation. The subject modules need only the Swagger annotations,
+             which common-core brings; the UI and the /api-docs route are this module's. -->
         <dependency>
             <groupId>org.springdoc</groupId>
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
-            <version>${springdoc.version}</version>
         </dependency>
         <dependency>
             <groupId>org.projectlombok</groupId>
@@ -176,23 +200,13 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>
                 <configuration>
-                    <!-- Order matters: Lombok must generate the accessors before MapStruct reads
-                         them, and lombok-mapstruct-binding is what makes the two cooperate. -->
+                    <!-- Lombok only. The MapStruct processor paths moved to pricing and
+                         billing, which are where the mappers are now. -->
                     <annotationProcessorPaths>
                         <path>
                             <groupId>org.projectlombok</groupId>
                             <artifactId>lombok</artifactId>
                             <version>${lombok.version}</version>
-                        </path>
-                        <path>
-                            <groupId>org.projectlombok</groupId>
-                            <artifactId>lombok-mapstruct-binding</artifactId>
-                            <version>${lombok-mapstruct-binding.version}</version>
-                        </path>
-                        <path>
-                            <groupId>org.mapstruct</groupId>
-                            <artifactId>mapstruct-processor</artifactId>
-                            <version>${mapstruct.version}</version>
                         </path>
                     </annotationProcessorPaths>
                 </configuration>

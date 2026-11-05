@@ -1,0 +1,17 @@
+# What the image builds must not see.
+#
+# The build stages bind-mount the repository instead of copying it module by module, so this file
+# is the only thing keeping the host's own build output and git history out of the build context.
+# A stale target/ directory would otherwise be visible to Maven inside the container, which is how
+# a build "succeeds" against classes nobody compiled from the current source.
+target/
+**/target/
+
+.git/
+.gitignore
+
+# Secrets, and local tooling that no image needs.
+.env
+.idea/
+*.iml
+.claude/

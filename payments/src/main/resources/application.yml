@@ -1,0 +1,223 @@
+spring:
+  application:
+    name: payments
+  profiles:
+    default: docker
+
+  datasource:
+    # A database of its own in the same PostgreSQL instance, not a schema in another service's.
+    # The outbox and the consumed-message ledger common-amqp ships are created per service, and two
+    # services sharing one database would collide on both tables. docker/postgres/ creates it.
+    url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${PAYMENTS_DB:confluo_payments}
+    username: ${POSTGRES_USER:confluo}
+    password: ${POSTGRES_PASSWORD:confluo}
+
+  jpa:
+    # The schema belongs to Flyway. validate makes a drift between the entities and the migrations
+    # a startup failure rather than a surprise at the first query.
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+    properties:
+      hibernate:
+        jdbc:
+          time_zone: UTC
+
+  flyway:
+    enabled: true
+    # One location per module that owns tables, and every one of them is inside another jar on this
+    # service's classpath - the module that owns a table ships the migration that creates it, so a
+    # module can be lifted out with its schema rather than leaving tables behind in a file here.
+    #
+    # Each owns a reserved version range: 1000 common-amqp, 1100 payments-webhook, then 1200 pricing,
+    # 1300 onboarding, 1400 marketplace, 1500 payouts, 1600 billing. The ranges stop two modules
+    # claiming one version, which Flyway refuses to start on; the ascending order is a real
+    # dependency, because the foreign keys between these tables run the same way. V1 itself creates
+    # nothing and holds the conventions all of them follow.
+    #
+    # Flyway orders by version and not by this list, so the order here is only for reading. Dropping
+    # a location is not a startup failure either - it is ddl-auto: validate failing on a missing
+    # table, which is a worse error to read than the one you would expect.
+    locations: >
+      classpath:db/migration,
+      classpath:db/migration/amqp,
+      classpath:db/migration/webhook,
+      classpath:db/migration/pricing,
+      classpath:db/migration/onboarding,
+      classpath:db/migration/marketplace,
+      classpath:db/migration/payouts,
+      classpath:db/migration/billing
+
+  data:
+    mongodb:
+      uri: ${MONGO_URI:mongodb://localhost:27017/confluo_payments}
+      auto-index-creation: true
+
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      repositories:
+        # Off. Redis is used here for short-lived locks and counters through a template, never as a
+        # repository - and with three Spring Data modules on the classpath, a scanner that could
+        # claim a repository interface is the third door. The other two are closed by naming
+        # packages: this service enables JPA repositories for its own, and payments-webhook enables
+        # both stores for the two of its own.
+        enabled: false
+      # Short, and deliberately so. Nothing asked of Redis here is something this service cannot
+      # decide without it: a webhook's in-flight lock is an optimisation in front of the unique
+      # constraint on the event id, which is what actually makes applying one twice impossible.
+      timeout: 1s
+      connect-timeout: 1s
+
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:confluo}
+    password: ${RABBITMQ_PASSWORD:confluo}
+    virtual-host: ${RABBITMQ_VHOST:/}
+    # Not optional: the outbox drainer marks an entry published only once the broker has confirmed
+    # it, and without correlated confirms there is nothing to wait for.
+    publisher-confirm-type: correlated
+    publisher-returns: true
+    listener:
+      simple:
+        # The module sets both of these on the containers it builds itself; these cover anything
+        # else, such as a plain @RabbitListener. default-requeue-rejected defaults to true, which
+        # redelivers a rejected message immediately - so a message that always fails would spin a
+        # consumer at full speed.
+        acknowledge-mode: manual
+        default-requeue-rejected: false
+
+  security:
+    oauth2:
+      resourceserver:
+        jwt:
+          issuer-uri: https://securetoken.google.com/${FIREBASE_PROJECT_ID}
+
+server:
+  port: ${SERVER_PORT:8083}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_URI:http://localhost:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
+firebase:
+  project-id: ${FIREBASE_PROJECT_ID}
+
+confluo:
+  # The sweep that applies what the webhook endpoints recorded. Not under confluo.payments because
+  # payments-webhook owns it: the defaults are in that module's WebhookProperties and are written
+  # out here because they are behaviour rather than plumbing - the poll interval is also the unit
+  # the failure backoff doubles from, and max-attempts is the point at which an unapplied event
+  # stops being retried and starts needing a person.
+  webhook:
+    enabled: true
+    batch-size: 20
+    poll-interval: 5s
+    max-attempts: 10
+    # Longer than a handful of poll intervals on purpose. A few seconds of backlog is a busy
+    # service; an event still unapplied after this long is a payment nobody has acted on.
+    stale-after: 5m
+
+  payments:
+    checkout:
+      # The platform's default cut of a marketplace sale, in basis points. A provider on a paid
+      # tier can be charged less - see Plan.platformFeeBpsOverride, which overrides this per seller.
+      platform-fee-basis-points: ${PLATFORM_FEE_BPS:250}
+      # Where Stripe sends the payer afterwards. {CHECKOUT_SESSION_ID} is substituted by Stripe.
+      # The success page must not treat being reached as proof of payment: a payer can open that
+      # URL themselves, and only the webhook proves anything.
+      success-url: ${CHECKOUT_SUCCESS_URL:http://localhost:3000/checkout/success?session={CHECKOUT_SESSION_ID}}
+      cancel-url: ${CHECKOUT_CANCEL_URL:http://localhost:3000/checkout/cancelled}
+
+    connect:
+      # Where Stripe sends a seller after its hosted onboarding. Reaching the return URL does not
+      # mean they are verified - Stripe returns them the moment the form is submitted, and whether
+      # they can be charged for arrives later on account.updated.
+      onboarding-return-url: ${CONNECT_RETURN_URL:http://localhost:3000/connect/onboarding/done}
+      # An account link is single-use and expires in minutes. Stripe sends a seller here when the
+      # link is stale, so this has to be a page that asks for a fresh one and redirects again.
+      onboarding-refresh-url: ${CONNECT_REFRESH_URL:http://localhost:3000/connect/onboarding/refresh}
+
+    identity:
+      # Where Stripe sends somebody after they submit their identity documents. Reaching it means
+      # submitted, not verified - the checks run afterwards and the outcome arrives on a webhook.
+      return-url: ${IDENTITY_RETURN_URL:http://localhost:3000/identity/submitted}
+
+    refund:
+      # Who bears a refunded sale, which under destination charges is a commercial decision rather
+      # than a consequence. The money leaves the platform's Stripe balance either way; these say
+      # whether the seller and the platform give up their shares of a sale that has been undone.
+      # Both true is the arrangement where a cancelled sale leaves nobody better off than if it had
+      # never happened.
+      reverse-transfer: ${REFUND_REVERSE_TRANSFER:true}
+      # Only sent to Stripe when the transfer is being reversed - it refuses to take a fee out of a
+      # transfer that is staying put. False here means the platform keeps its cut of a refunded
+      # sale, which makes its margin come out of the seller's share.
+      refund-application-fee: ${REFUND_APPLICATION_FEE:true}
+
+    dispute:
+      # A lost chargeback debits the platform, not the seller - the platform is the merchant of
+      # record under destination charges, and the seller was paid when the sale completed. True
+      # claws their share back; it can recover less than the dispute, or nothing, once their balance
+      # has reached their bank, and the platform absorbs the difference.
+      reverse-transfer: ${DISPUTE_REVERSE_TRANSFER:true}
+      # False, unlike the refund setting above, and the asymmetry is deliberate: a refund is a sale
+      # unwound by agreement, while a lost dispute is a loss the platform already bears along with
+      # Stripe's dispute fee. True would hand the commission back to the seller, leaving them better
+      # off for a chargeback than for a completed sale.
+      refund-application-fee: ${DISPUTE_REFUND_APPLICATION_FEE:false}
+
+  stripe:
+    # No defaults, on purpose: an unset variable then fails at startup naming the property, rather
+    # than starting a payments service that cannot authenticate to Stripe or verify a webhook.
+    secret-key: ${STRIPE_SECRET_KEY}
+    webhook-secret: ${STRIPE_WEBHOOK_SECRET}
+    connect-webhook-secret: ${STRIPE_CONNECT_WEBHOOK_SECRET}
+
+  amqp:
+    # Every exchange and queue name is derived from this. It defaults to the application's own
+    # name; it is written out here because renaming the service would otherwise quietly rename
+    # the exchange its consumers are bound to.
+    service-name: ${spring.application.name}
+    # A queue's type cannot be changed after it is declared, so switching this means deleting and
+    # recreating the queues while they are drained.
+    queue-type: ${RABBITMQ_QUEUE_TYPE:classic}
+
+springdoc:
+  api-docs:
+    path: /api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: when-authorized
+      group:
+        # What the container's healthcheck watches. Only PostgreSQL, because only PostgreSQL makes
+        # this service unable to do its job: it holds the webhook ledger and the mirrored state.
+        # MongoDB down costs the archived copy of an event body; Redis down costs a lock the
+        # database can also enforce; the broker down costs events, which the outbox holds until it
+        # returns. The full aggregate is still on /actuator/health for a person to read.
+        liveness:
+          include: ping,db
+  tracing:
+    sampling:
+      # Everything locally: there is little of it, and the trace worth having is the one that
+      # went wrong. Deployed environments lower this.
+      probability: ${TRACING_SAMPLE_RATE:1.0}
+  zipkin:
+    tracing:
+      endpoint: ${ZIPKIN_URL:http://localhost:9411/api/v2/spans}
+
+logging:
+  level:
+    com.confluo: DEBUG

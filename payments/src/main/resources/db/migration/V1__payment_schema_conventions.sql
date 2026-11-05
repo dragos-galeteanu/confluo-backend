@@ -1,0 +1,58 @@
+-- Everything this service can answer about money without calling Stripe, and the ledger that makes
+-- answering it twice impossible.
+--
+-- Stripe is the source of truth for all of it. These tables are a mirror, written by webhooks, and
+-- that is the whole design: every other service needs to know whether something has been paid for,
+-- and none of them should be making a network call to Stripe on the path of a request. Where a fact
+-- is Stripe's own and nothing here decides on it, it is deliberately NOT copied - a second place
+-- for a fact to be true is a second place for it to be wrong, and the copy is always the stale one.
+--
+-- No card details are stored, ever. What is stored is Stripe's identifiers and the amounts attached
+-- to them.
+--
+-- THREE CONVENTIONS, all load-bearing:
+--
+--   Amounts are BIGINT in the currency's minor units, exactly as Stripe states them. Never a
+--   floating type - a cent lost to binary rounding is a cent somebody is owed - and BIGINT rather
+--   than INTEGER because the minor units of a low-denomination currency overflow four bytes at
+--   amounts that are not large.
+--
+--   Currency codes are uppercase ISO 4217, matching the platform service's own `currencies.code`,
+--   with no foreign key: that table is in another database. Stripe speaks lowercase, so the fold
+--   happens at the Stripe boundary and these columns have a CHECK that says so - the alternative
+--   is two spellings of EUR in the same column and a report that silently sees half the revenue.
+--
+--   Enumerated values are uppercase and constrained where this service owns the state machine, and
+--   left as free text where Stripe owns it and keeps adding values. Which is which is stated at
+--   each column: a CHECK on a list Stripe can extend would reject the webhook rather than the
+--   value, and losing an event about a dispute is worse than storing a status nothing matches yet.
+--
+-- Every table carries the same five columns as com.confluo.common.jpa.entity.BaseJpaEntity: the id,
+-- the two timestamps Hibernate maintains, and the two soft-state markers. The outbox and the
+-- consumed-message ledger that common-amqp adds to this database are the exception, and they are
+-- not JPA entities at all: they are reached through JdbcTemplate.
+--
+-- THIS VERSION CREATES NOTHING, and that is what it is for.
+--
+-- The tables are created by the modules that own them, each shipping its own migration inside its
+-- own jar, in the order their foreign keys require:
+--
+--      1 -  999   the payments service itself - this file, and anything genuinely service-wide
+--                 such as an extension or a shared function
+--   1000 - 1099   common-amqp:       the outbox and the consumed-message ledger
+--   1100 - 1199   payments-webhook:  the Stripe event ledger
+--   1200 - 1299   pricing:           plans, plan_prices
+--   1300 - 1399   onboarding:        stripe_customers, connected_accounts, identity_verifications
+--   1400 - 1499   marketplace:       payments, refunds
+--   1500 - 1599   payouts:           disputes, payout_transfers
+--   1600 - 1699   billing:           discounts, subscriptions, invoices, discount_redemptions
+--
+-- The ranges are what stop two modules from claiming one version, which Flyway refuses to start on.
+-- The ORDER is a real dependency rather than a tidy-up: marketplace's payments reference
+-- onboarding's connected_accounts, payouts' two tables reference both, and billing reaches pricing
+-- and marketplace. Numbering a module below one it references is a startup failure on an empty
+-- database.
+--
+-- The conventions above are written here rather than in each of those files because all of them
+-- follow them, and a convention copied into five places is a convention that drifts. Each module
+-- migration says so at its head and names the range it owns.

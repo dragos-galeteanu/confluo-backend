@@ -1,24 +1,26 @@
 # Built from the repository root, so the reactor's parent pom is in context:
 #   docker build -f eureka-server/Dockerfile -t confluo/eureka-server .
 FROM maven:3.9-eclipse-temurin-17 AS build
-WORKDIR /build
 
-# The poms first, on their own layer: dependencies are only re-resolved when a pom changes.
-# Every module's pom is needed because the root aggregator reads them all, even though this
-# service depends on none of them.
-COPY pom.xml ./
-COPY common-core/pom.xml common-core/
-COPY common-jpa/pom.xml common-jpa/
-COPY common-mongo/pom.xml common-mongo/
-COPY common-amqp/pom.xml common-amqp/
-COPY eureka-server/pom.xml eureka-server/
-COPY platform/pom.xml platform/
-COPY notifications/pom.xml notifications/
-RUN mvn -B -pl eureka-server -am dependency:go-offline
-
-# Only this service's sources: it depends on the parent pom alone, so -am adds nothing else.
-COPY eureka-server/src eureka-server/src
-RUN mvn -B -pl eureka-server -am package -DskipTests
+# The repository is bind-mounted rather than copied in, which is why this stage names no modules.
+# Maven reads the root aggregator and the aggregator lists every module in the reactor, so a
+# COPY-based stage has to enumerate all of them - and adding a module then means editing this file
+# in every service, which is how this one came to look as though it depended on payments. A mount
+# has no list to keep in step.
+#
+# `rw` makes the mount an overlay: Maven writes target/ into it and those writes are discarded
+# with the mount, so the jar is copied out to /out while it still exists. The cache mount is what
+# the old "poms first" COPY layer was for - dependencies survive between builds instead of being
+# re-resolved - and `sharing=locked` keeps two concurrent builds from writing the same repository.
+#
+# Needs BuildKit, which Docker Desktop and `docker buildx` use by default; elsewhere set
+# DOCKER_BUILDKIT=1.
+RUN --mount=type=bind,target=/build,rw \
+    --mount=type=cache,target=/root/.m2,sharing=locked \
+    cd /build \
+    && mvn -B -pl eureka-server -am package -DskipTests \
+    && mkdir -p /out \
+    && cp eureka-server/target/eureka-server.jar /out/app.jar
 
 FROM eclipse-temurin:17-jre AS runtime
 
@@ -29,7 +31,7 @@ RUN apt-get update \
     && useradd --system --uid 1001 --create-home eureka
 
 WORKDIR /app
-COPY --from=build /build/eureka-server/target/eureka-server.jar app.jar
+COPY --from=build /out/app.jar app.jar
 RUN chown eureka:eureka app.jar
 
 USER eureka
