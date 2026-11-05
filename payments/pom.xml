@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+         http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>com.confluo</groupId>
+        <artifactId>confluo-backend</artifactId>
+        <version>0.0.1-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>payments</artifactId>
+    <version>0.0.1-SNAPSHOT</version>
+    <name>payments</name>
+    <description>Money: Stripe checkout and webhooks, connected accounts and their KYC, subscriptions, invoices and discounts</description>
+
+    <properties>
+        <springdoc.version>2.3.0</springdoc.version>
+        <!-- Docker's API version for the Testcontainers tests, as in the other service modules.
+             docker-java still negotiates 1.43, which Docker Engine 25 and later refuse outright
+             (their minimum is 1.44), so the version is set explicitly. Override with
+             -Ddocker.api.version= on an older engine. -->
+        <docker.api.version>1.44</docker.api.version>
+        <lombok-mapstruct-binding.version>0.2.0</lombok-mapstruct-binding.version>
+    </properties>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-core</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Everything that has to balance: the catalog, the mirrored money objects, and the
+             webhook ledger that decides whether an event has already been applied. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-jpa</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The raw body of every webhook, kept as the document Stripe sent rather than as columns
+             guessed in advance, so a field added on their side costs nothing here. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-mongo</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Both halves, as in notifications: this service publishes what it learns from Stripe,
+             and consumes the events that ask it to charge or refund. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>common-amqp</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-netflix-eureka-client</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- The webhook in-flight locks, the checkout-session deduplication window and the token
+             bucket in front of Stripe's own rate limits. Losable by design: every one of those is
+             a decision the ledger in PostgreSQL can also make, only more expensively. -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-data-redis</artifactId>
+        </dependency>
+
+        <!-- The Stripe client, the API-version assertion and one narrow interface per call this
+             service makes. Holds no domain, which is what let it leave this module. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payments-stripe</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- The webhook endpoints, the event ledger and the sweep that applies what they recorded.
+             Ships its own migrations, numbered 1100-1199; see its EnableStripeWebhooks. -->
+        <dependency>
+            <groupId>com.confluo</groupId>
+            <artifactId>payments-webhook</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        <!-- Stripe itself, still declared here rather than left transitive: this service's handlers
+             deserialise Stripe's own models and build its parameter objects, so it is a direct
+             dependency whether or not payments-stripe brings it. -->
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springdoc</groupId>
+            <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+            <version>${springdoc.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.projectlombok</groupId>
+            <artifactId>lombok</artifactId>
+            <optional>true</optional>
+        </dependency>
+
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.springframework.security</groupId>
+            <artifactId>spring-security-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>mongodb</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>rabbitmq</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <finalName>payments</finalName>
+        <plugins>
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+                <configuration>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <systemPropertyVariables>
+                        <api.version>${docker.api.version}</api.version>
+                    </systemPropertyVariables>
+                    <!-- As in notifications: an *IT needs Docker and a *Test does not, and both
+                         run in the same phase, because a build that skips the tests that touch
+                         the real schema is a build that proves the wrong half. -->
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <!-- Order matters: Lombok must generate the accessors before MapStruct reads
+                         them, and lombok-mapstruct-binding is what makes the two cooperate. -->
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                            <version>${lombok.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok-mapstruct-binding</artifactId>
+                            <version>${lombok-mapstruct-binding.version}</version>
+                        </path>
+                        <path>
+                            <groupId>org.mapstruct</groupId>
+                            <artifactId>mapstruct-processor</artifactId>
+                            <version>${mapstruct.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>
